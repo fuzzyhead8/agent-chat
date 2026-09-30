@@ -38,6 +38,16 @@ def weekly_allowance(result):
     return min(candidates, key=lambda item: (item[0], item[1] if item[1] is not None else math.inf))
 
 
+def _read_rate_limits(rpc):
+    """Codex 0.155+ accepts excludeResetCreditDetails; 0.153 rejects any params ("expected unit")."""
+    try:
+        return rpc.request('account/rateLimits/read', {'excludeResetCreditDetails': True})
+    except RpcError as error:
+        if 'expected unit' not in str(error):
+            raise
+        return rpc.request('account/rateLimits/read')
+
+
 class UsageGuard:
     def __init__(self, client, host, *, clock=time.monotonic):
         self.client, self.host, self.clock = client, host, clock
@@ -75,8 +85,7 @@ class UsageGuard:
             remaining, resets_at, error_text = None, None, None
             try:
                 rpc.connect()
-                remaining, resets_at = weekly_allowance(rpc.request(
-                    'account/rateLimits/read', {'excludeResetCreditDetails': True}))
+                remaining, resets_at = weekly_allowance(_read_rate_limits(rpc))
             except ERRORS as error:
                 error_text = str(error)
                 if isinstance(error, TransportError):

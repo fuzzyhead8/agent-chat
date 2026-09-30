@@ -10,6 +10,9 @@
  * AGENT_CHAT_API_TOKEN or AGENT_CHAT_API_TOKEN_FILE, AGENT_CHAT_CLI, AGENT_CHAT_PROJECT, AGENT_CHAT_ROOT.
  * Without them it falls back to this checkout: its venv CLI and `.agent-chat/state.sqlite3.api-token`.
  * Bindings are kept per Pi session in ~/.pi/agent/agent-chat-wake.json, so a resumed session stays bound.
+ *
+ * The UI's weekly guard applies here too: while it blocks work, no wake is delivered and, when the guard is
+ * enabled, a running Pi turn is aborted, as the bridge interrupts Codex turns. Messages wait in the inbox.
  */
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
@@ -96,6 +99,21 @@ function client(binding: Binding, args: string[]): Promise<any> {
 	});
 }
 
+type UsagePolicy = { enabled: boolean; blocked: boolean; reason?: string | null };
+
+// The weekly guard's shared policy. host_id null reads it without registering this client as a quota host.
+async function usagePolicy(): Promise<UsagePolicy> {
+	const response = await fetch(`${SERVER}/api/usage/rpc`, {
+		method: "POST",
+		headers: { Authorization: `Bearer ${apiToken() ?? ""}`, "Content-Type": "application/json" },
+		body: JSON.stringify({ op: "status", host_id: null }),
+		signal: AbortSignal.timeout(10000),
+	});
+	const data = await response.json();
+	if (!response.ok || typeof data?.blocked !== "boolean") throw new Error(data?.error ?? `usage status ${response.status}`);
+	return data;
+}
+
 // The same instructions the Codex bridge puts in front of a wake, plus the connection a Pi agent needs.
 function wakePrompt(binding: Binding, messages: Message[]): string {
 	const metadata = {
@@ -139,6 +157,15 @@ export default function (pi: ExtensionAPI) {
 		if (!current || polling) return;
 		polling = true;
 		try {
+			// Like the bridge: an unreadable policy withholds wakes; an enabled guard also stops running turns.
+			const policy = await usagePolicy().catch(
+				(error: Error): UsagePolicy => ({ enabled: false, blocked: true, reason: `cannot verify usage: ${error.message}` }),
+			);
+			if (policy.blocked) {
+				status(ctx, `agent-chat paused: ${(policy.reason ?? "weekly guard").slice(0, 60)}`);
+				if (policy.enabled && !ctx.isIdle()) ctx.abort();
+				return;
+			}
 			const inbox: Message[] = (await client(current, ["context"])).messages ?? [];
 			const fresh = inbox.filter((m) => (!m.batch_id || m.attention) && !delivered.has(m.id));
 			status(ctx, `agent-chat: ${inbox.length} unread`);

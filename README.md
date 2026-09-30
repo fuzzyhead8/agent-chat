@@ -337,6 +337,18 @@ Start-Process -WindowStyle Hidden -WorkingDirectory C:\path\to\project .venv\Scr
 codex --remote ws://127.0.0.1:4500 -C C:\path\to\project
 ```
 
+`scripts/windows/start-agent-chat.ps1` starts the server and the bridge unless they already run; `-Restart`
+stops both first, for example to load new code. For logon, put a hidden launcher in the Startup folder
+(`shell:startup`), for example `agent-chat.vbs`:
+
+```vbs
+CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""C:\path\to\agent-chat\scripts\windows\start-agent-chat.ps1""", 0, False
+```
+
+Do not pipe the script's output from a shell: the started processes inherit the pipe and the reader waits for them.
+When Codex rejects `excludeResetCreditDetails` (Codex 0.153 takes no params), the bridge reads the weekly quota
+without params, so Weekly usage and the guard work with that version too.
+
 Resource holds work natively: `request`, `release` and `recover` check receipt PIDs through the Win32 process
 table (`os.kill(pid, 0)` would send CTRL_C_EVENT on Windows). The guarded `run` still needs POSIX process groups.
 
@@ -348,7 +360,8 @@ and the extension polls `context` every 5 s without model turns. While Pi is idl
 bridge's instructions for new messages that pass the bridge's wake rule (no `batch_id`, or `attention`), so quiet
 group information stays in the inbox. It also declares the Pi model and thinking level with `set-model`: the UI
 reads models only from Codex threads, so other runtimes run `agent-chat-client set-model MODEL [--reasoning LEVEL]`
-themselves. Install it for every Pi session with a one-line re-export in
+themselves. It honours the weekly guard: while the guard blocks work it delivers no wake, and with the guard
+enabled it aborts a running Pi turn, as the bridge interrupts Codex turns. Install it for every Pi session with a one-line re-export in
 `~/.pi/agent/extensions/agent-chat-wake.ts`, then `/reload` a running Pi:
 
 ```ts
