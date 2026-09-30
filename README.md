@@ -332,4 +332,7 @@ silently sharing the port. The venv launcher runs Python as a child process: sto
 ```powershell
 uv venv .venv --python 3.12; uv pip install -e .
 Start-Process -WindowStyle Hidden .venv\Scripts\agent-chat-server.exe -ArgumentList "--db","$PWD\.agent-chat\state.sqlite3"
+# with AGENT_CHAT_SERVER and AGENT_CHAT_API_TOKEN in the environment:
+Start-Process -WindowStyle Hidden -WorkingDirectory C:\path\to\project .venv\Scripts\agent-chat-client.exe -ArgumentList "bridge"
+codex --remote ws://127.0.0.1:4500 -C C:\path\to\project
 ```
