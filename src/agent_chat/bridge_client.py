@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import fcntl
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -18,6 +18,7 @@ import time
 import uuid
 
 from .bridge import Bridge
+from .filelock import lock_exclusive, unlock
 from .core import CoordError
 from .remote import HttpClient, host_id
 from .rpc import RpcClient, RpcError, TransportError
@@ -56,7 +57,7 @@ def client_identity(server_url, state_file=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     with Path(str(path) + '.lock').open('a+') as lock:
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_exclusive(lock.fileno(), blocking=False)
         except BlockingIOError:
             raise CoordError('a bridge client already uses this identity file')
         try:
@@ -75,7 +76,7 @@ def client_identity(server_url, state_file=None):
                 raise CoordError('bridge identity file is invalid or belongs to another host')
             yield identity
         finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            unlock(lock.fileno())
 
 
 def _project_ids(client):
@@ -97,6 +98,15 @@ def _identity_key(server_url, project):
 
 def _stop_codex(process):
     if process is None:
+        return
+    if os.name == 'nt':
+        # Windows has no signalable process groups: taskkill /T ends the
+        # app-server together with the npm shim and node processes around it.
+        if process.poll() is None:
+            subprocess.run(['taskkill', '/T', '/F', '/PID', str(process.pid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(5)
         return
 
     def group_alive():
@@ -126,6 +136,15 @@ def _stop_codex(process):
     if group_alive():
         raise CoordError('could not prove owned Codex process group was closed')
     process.wait(timeout=1)
+
+
+def _codex_launch(codex_bin):
+    """Command prefix and Popen options for the owned app-server."""
+    if os.name == 'nt':
+        # npm installs codex as codex.cmd, which CreateProcess finds only by
+        # its full name; a new group keeps the console Ctrl+C for the bridge.
+        return [shutil.which(codex_bin) or codex_bin], {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
+    return [codex_bin], {'start_new_session': True}
 
 
 def _codex_environment(args, api_token):
@@ -181,10 +200,11 @@ def main(argv=None):
         rpc = RpcClient(args.codex_server)
         usage_guard = UsageGuard(registry, host_id())
         if not args.connect_only:
+            command, options = _codex_launch(args.codex_bin)
             codex = subprocess.Popen(
-                [args.codex_bin, 'app-server', '--listen', args.codex_server],
+                command + ['app-server', '--listen', args.codex_server],
                 cwd=os.getcwd(), env=_codex_environment(args, registry.token), stdout=sys.stderr, stderr=sys.stderr,
-                start_new_session=True)
+                **options)
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous[sig] = signal.signal(sig, lambda *_: stop.set())
         command = 'codex --remote ' + args.codex_server

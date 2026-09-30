@@ -237,6 +237,9 @@ def operator_session(db_path):
 
 
 class WebServer(http.server.ThreadingHTTPServer):
+    # Windows SO_REUSEADDR lets a second server bind the same port and silently
+    # take part of the traffic; fail the bind instead.
+    allow_reuse_address = os.name != 'nt'
     daemon_threads = True
 
     def __init__(self, address, handler, db_path, web_root, api_token=None, public_url=None, sessions_root=None):

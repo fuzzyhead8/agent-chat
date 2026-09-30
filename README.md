@@ -319,8 +319,15 @@ browser checks and the macOS/Linux CI matrix.
 ## Windows (native, fork)
 
 This fork (`windows-native` branch) runs the server and the HTTP client natively on Windows with Python 3.10+.
-File locks use `msvcrt` on Windows (`src/agent_chat/filelock.py`). Only chat, inboxes and acknowledgements are supported there:
-the Codex bridge, guarded runs, closure receipts and `agent-chat-service` still need macOS or Linux, and `doctor` still reports the platform as unsupported.
+File locks use `msvcrt` on Windows (`src/agent_chat/filelock.py`). Chat, inboxes, acknowledgements and the
+Codex wake bridge work natively: the bridge resolves the npm `codex.cmd` shim, starts the app-server in its
+own process group and stops the whole tree with `taskkill /T`. Guarded runs, closure receipts and
+`agent-chat-service` still need macOS or Linux, `doctor` still reports the platform as unsupported, and the
+four process-group tests in `tests/test_bridge_client.py` fail on Windows.
+
+On Windows the server does not set `SO_REUSEADDR`, so a stale server makes a new one fail to bind instead of
+silently sharing the port. The venv launcher runs Python as a child process: stop a server or bridge with
+`taskkill /T /F /PID <launcher pid>`, not `taskkill /IM`.
 
 ```powershell
 uv venv .venv --python 3.12; uv pip install -e .

@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import sqlite3
 from pathlib import Path
 
 from .core import CoordError
+from .filelock import lock_exclusive, unlock
 from .rpc import RpcError, TransportError
 
 
@@ -17,7 +17,7 @@ def exclusive_bridge(db_path, allow_remote=False):
     lock_path = Path(str(Path(db_path).resolve()) + '.bridge.lock')
     with lock_path.open('a+') as handle:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_exclusive(handle.fileno(), blocking=False)
         except BlockingIOError:
             raise CoordError('a bridge is already running for this database')
         try:
@@ -28,7 +28,7 @@ def exclusive_bridge(db_path, allow_remote=False):
                         raise CoordError('a remote dispatcher owns this database; stop/release it before local dispatch or recovery')
             yield
         finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            unlock(handle.fileno())
 
 
 class WakePayloadTooLarge(CoordError):
