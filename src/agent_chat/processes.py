@@ -16,6 +16,8 @@ def receipt_pid_alive(pid: int, closed_at: float) -> bool:
     if (isinstance(closed_at, bool) or not isinstance(closed_at, (int, float))
             or not 0 < closed_at <= time.time()):
         raise ValueError("receipt closed_at is invalid")
+    if os.name == 'nt':
+        return _windows_pid_alive(pid, closed_at)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -32,3 +34,33 @@ def receipt_pid_alive(pid: int, closed_at: float) -> bool:
         return started.replace(tzinfo=timezone.utc).timestamp() <= closed_at
     except (OSError, ValueError, subprocess.SubprocessError):
         return True
+
+
+def _windows_pid_alive(pid: int, closed_at: float) -> bool:
+    """Windows has no signal 0: os.kill(pid, 0) sends CTRL_C_EVENT. Ask the process table instead."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        # ERROR_INVALID_PARAMETER means no such process; access denial keeps the hold.
+        return ctypes.get_last_error() != 87
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        if code.value != 259:  # not STILL_ACTIVE: exited, only a handle keeps the entry
+            return False
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return True
+        ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        return ticks / 10_000_000 - 11_644_473_600 <= closed_at  # FILETIME epoch is 1601
+    finally:
+        kernel32.CloseHandle(handle)

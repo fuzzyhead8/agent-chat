@@ -394,7 +394,17 @@ class Coordinator:
                 "sender_agent": message["sender_agent"], "created_at": message["created_at"],
                 "body": body, "body_truncated": body != message["body"],
                 "attachments": message["attachments"], "reply_to": message["reply_to"],
-                **({"batch_id": message["batch_id"]} if message.get("batch_id") else {})}
+                **({"batch_id": message["batch_id"]} if message.get("batch_id") else {}),
+                **({"attention": True} if message.get("attention") else {})}
+
+    @staticmethod
+    def _attention_ids(db: sqlite3.Connection, message_ids: list[str]) -> set[str]:
+        """Group messages that request a wake; with batch_id, this is the bridge's wake rule for clients."""
+        if not message_ids:
+            return set()
+        marks = ",".join("?" for _ in message_ids)
+        return {row["message_id"] for row in db.execute(
+            f"SELECT message_id FROM message_attention WHERE message_id IN ({marks})", message_ids)}
 
     def context(self, limit: int = 20, max_bytes: int = 12288, cursor: int | None = None,
                 message_ids: list[str] | None = None, resources: list[str] | None = None,
@@ -477,7 +487,9 @@ class Coordinator:
                 result["resources_cursor"] = row["name"]
             if len(result["resources"]) < len(resource_rows):
                 result["resources_has_more"] = True
+            attention = self._attention_ids(db, [row["id"] for row in rows])
             for row, full in zip(rows, self._message_dicts(db, rows)):
+                full["attention"] = row["id"] in attention
                 candidate = self._context_message(full, full["body"])
                 trial = {**result, "messages": [*result["messages"], candidate], "cursor": row["seq"],
                          "has_more": False, "truncated": result["truncated"] or candidate["body_truncated"]}

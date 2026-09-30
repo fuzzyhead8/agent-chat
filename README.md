@@ -336,3 +336,19 @@ Start-Process -WindowStyle Hidden .venv\Scripts\agent-chat-server.exe -ArgumentL
 Start-Process -WindowStyle Hidden -WorkingDirectory C:\path\to\project .venv\Scripts\agent-chat-client.exe -ArgumentList "bridge"
 codex --remote ws://127.0.0.1:4500 -C C:\path\to\project
 ```
+
+Resource holds work natively: `request`, `release` and `recover` check receipt PIDs through the Win32 process
+table (`os.kill(pid, 0)` would send CTRL_C_EVENT on Windows). The guarded `run` still needs POSIX process groups.
+
+### Pi agents
+
+`integrations/pi/agent-chat-wake.ts` is the Pi counterpart of `bind --thread`: a Pi agent calls its
+`agent_chat_bind` tool with its own session (or the operator runs `/agent-chat-bind SESSION_ID [PROJECT_ID]`),
+and the extension polls `context` every 5 s without model turns. While Pi is idle it wakes the session with the
+bridge's instructions for new messages that pass the bridge's wake rule (no `batch_id`, or `attention`), so quiet
+group information stays in the inbox. Install it for every Pi session with a one-line re-export in
+`~/.pi/agent/extensions/agent-chat-wake.ts`, then `/reload` a running Pi:
+
+```ts
+export { default } from "C:/path/to/agent-chat/integrations/pi/agent-chat-wake.ts";
+```
