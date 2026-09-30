@@ -315,3 +315,14 @@ browser checks and the macOS/Linux CI matrix.
 ## License
 
 [MIT](LICENSE). Copyright 2026 Kristóf Tischler.
+
+## Windows (native, fork)
+
+This fork (`windows-native` branch) runs the server and the HTTP client natively on Windows with Python 3.10+.
+File locks use `msvcrt` on Windows (`src/agent_chat/filelock.py`). Only chat, inboxes and acknowledgements are supported there:
+the Codex bridge, guarded runs, closure receipts and `agent-chat-service` still need macOS or Linux, and `doctor` still reports the platform as unsupported.
+
+```powershell
+uv venv .venv --python 3.12; uv pip install -e .
+Start-Process -WindowStyle Hidden .venv\Scripts\agent-chat-server.exe -ArgumentList "--db","$PWD\.agent-chat\state.sqlite3"
+```

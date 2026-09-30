@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 
 from .core import CoordError
+from .filelock import lock_exclusive
 
 MAX_RESPONSE_BYTES = 60 * 1024 * 1024
 
@@ -39,11 +40,10 @@ def client_host_id() -> str:
     root.mkdir(parents=True, exist_ok=True)
     # A lock plus fsync/replace prevents a concurrent client from reading a
     # partially written identity.  Existing malformed state fails closed.
-    import fcntl
     lock = root / "client-host.lock"
     with lock.open("a+", encoding="utf-8") as guard:
         os.chmod(lock, 0o600)
-        fcntl.flock(guard.fileno(), fcntl.LOCK_EX)
+        lock_exclusive(guard.fileno())
         try:
             value = json.loads(path.read_text(encoding="utf-8")).get("host_id")
         except FileNotFoundError:

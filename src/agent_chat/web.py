@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 from email.parser import BytesParser
 from email.policy import default as email_policy
-import fcntl
+from .filelock import lock_exclusive
 import http.server
 import json
 import os
@@ -216,7 +216,7 @@ def operator_session(db_path):
     session_file = Path(str(db_path) + '.web-session.json')
     fd = os.open(session_file, os.O_RDWR | os.O_CREAT, 0o600)
     with os.fdopen(fd, 'r+') as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+        lock_exclusive(stream.fileno())
         raw = stream.read(4096)
         stored = json.loads(raw) if raw else None
         if stored is not None and (not isinstance(stored, dict) or not isinstance(stored.get('id'), str) or not stored['id']):
