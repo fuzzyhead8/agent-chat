@@ -60,6 +60,7 @@ def dispatch(coord: Coordinator, body: dict, *, bridge_manager=None) -> dict:
     # Keep this list auditable.  Do not replace it with getattr.
     if op == "register": return coord.register(_string(params.get("agent"), "agent"))
     if op == "rename": return coord.rename(_string(params.get("agent"), "agent"))
+    if op == "set-model": return coord.set_model(_string(params.get("model"), "model"), params.get("reasoning"))
     if op == "status": return coord.status(params.get("mine", False), params.get("resources"))
     if op == "inbox": return coord.inbox(bool(params.get("all", False)))
     if op == "context": return coord.context(params.get("limit", 20), params.get("max_bytes", 12288),

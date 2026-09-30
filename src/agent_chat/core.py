@@ -126,6 +126,8 @@ class Coordinator:
         CREATE TABLE IF NOT EXISTS message_attention (
           message_id TEXT PRIMARY KEY,
           FOREIGN KEY(message_id) REFERENCES messages(id));
+        CREATE TABLE IF NOT EXISTS session_model_claims (
+          session_id TEXT PRIMARY KEY, model TEXT NOT NULL, reasoning_effort TEXT, updated_at REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS attachments_message_id ON attachments(message_id);
         CREATE TABLE IF NOT EXISTS reply_ack_idempotency (
           sender_session TEXT NOT NULL, reply_to TEXT NOT NULL,
@@ -208,6 +210,19 @@ class Coordinator:
         else:
             self.db.commit()
         return {"session": sid, "agent": agent}
+
+    def set_model(self, model: str, reasoning_effort: str | None = None) -> dict[str, Any]:
+        """Record the caller's own model for runtimes without a Codex thread to read it from."""
+        for name, value in (("model", model), ("reasoning_effort", reasoning_effort)):
+            if (value is not None or name == "model") and (
+                    not isinstance(value, str) or not value.strip() or len(value) > 80 or not value.isprintable()):
+                raise CoordError(f"{name} must be a short printable string")
+        sid = self.require_session()
+        with self.tx() as db:
+            db.execute("""INSERT INTO session_model_claims VALUES(?,?,?,?) ON CONFLICT(session_id) DO UPDATE
+                SET model=excluded.model, reasoning_effort=excluded.reasoning_effort, updated_at=excluded.updated_at""",
+                (sid, model, reasoning_effort, _now()))
+        return {"session": sid, "model": model, "reasoning_effort": reasoning_effort}
 
     def remove_session(self, session_id: str) -> dict[str, Any]:
         """Remove a coordination session (e.g. a finished subagent).

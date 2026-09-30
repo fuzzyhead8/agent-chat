@@ -84,6 +84,8 @@ def _remote_main(raw, global_args, server):
     sub = p.add_subparsers(dest='op', required=True)
     x = sub.add_parser('register'); x.add_argument('--agent', required=True)
     x = sub.add_parser('rename', help='change your name while preserving your session'); x.add_argument('--agent', required=True)
+    x = sub.add_parser('set-model', help='declare your model for the UI when no Codex thread reports it')
+    x.add_argument('model'); x.add_argument('--reasoning')
     x = sub.add_parser('inbox'); x.add_argument('--all', action='store_true'); x.add_argument('--agent')
     x = sub.add_parser('context', help='bounded unread messages and relevant resources')
     x.add_argument('--limit', type=int, default=20); x.add_argument('--max-bytes', type=int, default=12288)

@@ -168,6 +168,13 @@ export default function (pi: ExtensionAPI) {
 		void poll(ctx);
 	}
 
+	// The UI reads Codex models from their threads; a Pi agent declares its own.
+	function declareModel(current: Binding | undefined, model: ExtensionContext["model"], level: string) {
+		if (!current || !model) return;
+		const reasoning = level && level !== "off" ? ["--reasoning", level] : [];
+		client(current, ["set-model", model.id, ...reasoning]).catch(() => undefined);
+	}
+
 	async function bind(ctx: ExtensionContext, session: string, project?: string, root?: string): Promise<Binding> {
 		const candidate: Binding = {
 			session,
@@ -182,6 +189,7 @@ export default function (pi: ExtensionAPI) {
 		writeBindings(all);
 		delivered.clear();
 		start(ctx);
+		declareModel(candidate, ctx.model, pi.getThinkingLevel());
 		return candidate;
 	}
 
@@ -201,9 +209,12 @@ export default function (pi: ExtensionAPI) {
 		binding = readBindings()[key];
 		delivered.clear();
 		start(ctx);
+		declareModel(binding, ctx.model, pi.getThinkingLevel());
 	});
 
 	pi.on("session_shutdown", async () => stop());
+	pi.on("model_select", async (event) => declareModel(binding, event.model, pi.getThinkingLevel()));
+	pi.on("thinking_level_select", async (event, ctx) => declareModel(binding, ctx.model, event.level));
 
 	pi.registerTool({
 		name: "agent_chat_bind",

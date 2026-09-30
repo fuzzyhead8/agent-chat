@@ -129,6 +129,10 @@ def snapshot(db_path, limit=UI_MESSAGE_LIMIT, usage_store=None, session_models=N
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bridge_bindings'").fetchone():
             bindings = {row['session_id']: dict(row) for row in db.execute(
                 'SELECT session_id,thread_id,agent_path FROM bridge_bindings')}
+        claims = {}
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_model_claims'").fetchone():
+            claims = {row['session_id']: dict(row) for row in db.execute(
+                'SELECT session_id,model,reasoning_effort FROM session_model_claims')}
         agents = agent_labels(db)
         total = db.execute('SELECT COUNT(*) FROM messages').fetchone()[0]
         rows = db.execute(f'SELECT {MESSAGE_COLUMNS} FROM messages ORDER BY seq DESC LIMIT ?',
@@ -161,6 +165,11 @@ def snapshot(db_path, limit=UI_MESSAGE_LIMIT, usage_store=None, session_models=N
             route = bindings.get(session['id'], {})
             observed = metadata.get(route.get('thread_id') or route.get('agent_path'), {})
             session.update(model=observed.get('model'), reasoning_effort=observed.get('reasoning_effort'))
+    # Runtimes without a Codex thread (Claude Code, Pi) declare their model with set-model.
+    for session in sessions:
+        claim = claims.get(session['id'])
+        if claim and not session.get('model'):
+            session.update(model=claim['model'], reasoning_effort=claim['reasoning_effort'])
     return data
 
 

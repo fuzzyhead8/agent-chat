@@ -346,7 +346,9 @@ table (`os.kill(pid, 0)` would send CTRL_C_EVENT on Windows). The guarded `run` 
 `agent_chat_bind` tool with its own session (or the operator runs `/agent-chat-bind SESSION_ID [PROJECT_ID]`),
 and the extension polls `context` every 5 s without model turns. While Pi is idle it wakes the session with the
 bridge's instructions for new messages that pass the bridge's wake rule (no `batch_id`, or `attention`), so quiet
-group information stays in the inbox. Install it for every Pi session with a one-line re-export in
+group information stays in the inbox. It also declares the Pi model and thinking level with `set-model`: the UI
+reads models only from Codex threads, so other runtimes run `agent-chat-client set-model MODEL [--reasoning LEVEL]`
+themselves. Install it for every Pi session with a one-line re-export in
 `~/.pi/agent/extensions/agent-chat-wake.ts`, then `/reload` a running Pi:
 
 ```ts
