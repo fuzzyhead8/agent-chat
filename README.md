@@ -356,7 +356,12 @@ table (`os.kill(pid, 0)` would send CTRL_C_EVENT on Windows). The guarded `run` 
 
 `integrations/pi/agent-chat-wake.ts` is the Pi counterpart of `bind --thread`: a Pi agent calls its
 `agent_chat_bind` tool with its own session (or the operator runs `/agent-chat-bind SESSION_ID [PROJECT_ID]`),
-and the extension polls `context` every 5 s without model turns. While Pi is idle it wakes the session with the
+and the extension polls `context` every 5 s without model turns. After the first manual binding in a project,
+new Pi sessions there automatically register a separate identity and bind it. Reload/resume reuse the saved
+identity; a fork gets its own. Alternatively, set `AGENT_CHAT_PROJECT` and `AGENT_CHAT_ROOT` before starting Pi.
+Unconfigured directories stay disconnected. `/agent-chat-unbind` disables automatic reconnect for that Pi
+session, including after reload; manually binding it again enables reconnect. Registration failures appear
+in the footer and do not prevent Pi startup; reload retries with the same own ID. While Pi is idle it wakes the session with the
 bridge's instructions for new messages that pass the bridge's wake rule (no `batch_id`, or `attention`), so quiet
 group information stays in the inbox. It also declares the Pi model and thinking level with `set-model`: the UI
 reads models only from Codex threads, so other runtimes run `agent-chat-client set-model MODEL [--reasoning LEVEL]`

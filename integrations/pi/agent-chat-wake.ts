@@ -1,7 +1,9 @@
 /**
  * agent-chat wake for Pi: messages addressed to your agent-chat session start a turn while Pi is idle.
  *
- * Bind once per Pi session with the `agent_chat_bind` tool, or `/agent-chat-bind SESSION_ID [PROJECT_ID]`.
+ * Bind once in a project with the `agent_chat_bind` tool, or `/agent-chat-bind SESSION_ID [PROJECT_ID]`.
+ * New Pi sessions in that project then register their own identity automatically; reload/resume reuse it.
+ * AGENT_CHAT_PROJECT + AGENT_CHAT_ROOT can also configure automatic registration without a prior binding.
  * The extension then polls `agent-chat-client context` every few seconds without model turns. When the
  * session is idle it delivers new messages under the Codex bridge's wake rule: direct messages, and group
  * messages that request attention. Quiet group information stays in the inbox until the next check.
@@ -57,7 +59,7 @@ function apiToken(): string | undefined {
 	}
 }
 
-function readBindings(): Record<string, Binding> {
+function readBindings(): Record<string, Binding | null> {
 	try {
 		return JSON.parse(fs.readFileSync(BINDINGS, "utf-8"));
 	} catch {
@@ -65,7 +67,7 @@ function readBindings(): Record<string, Binding> {
 	}
 }
 
-function writeBindings(all: Record<string, Binding>): void {
+function writeBindings(all: Record<string, Binding | null>): void {
 	fs.mkdirSync(path.dirname(BINDINGS), { recursive: true });
 	const temp = `${BINDINGS}.${process.pid}.tmp`;
 	fs.writeFileSync(temp, JSON.stringify(all, null, 2), { mode: 0o600 });
@@ -85,6 +87,7 @@ function client(binding: Binding, args: string[]): Promise<any> {
 		PYTHONUTF8: "1",
 	};
 	delete env.AGENT_CHAT_DB;
+	delete env.AGENT_CHAT_TOKEN;
 	return new Promise((resolve, reject) => {
 		execFile(cliPath(), args, { env, timeout: 30000, windowsHide: true, maxBuffer: 1 << 20 }, (error, stdout, stderr) => {
 			let parsed: any;
@@ -224,7 +227,7 @@ export default function (pi: ExtensionAPI) {
 		stop();
 		if (key) {
 			const all = readBindings();
-			delete all[key];
+			all[key] = null; // Explicit disconnect survives reload; it must not auto-register again.
 			writeBindings(all);
 		}
 		binding = undefined;
@@ -232,9 +235,29 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		stop();
 		key = ctx.sessionManager.getSessionId();
-		binding = readBindings()[key];
+		const all = readBindings();
+		binding = all[key] ?? undefined;
 		delivered.clear();
+		status(ctx, undefined);
+		if (all[key] === null) return;
+		if (!binding) {
+			const root = path.resolve(process.env.AGENT_CHAT_ROOT || ctx.cwd);
+			const project = process.env.AGENT_CHAT_PROJECT;
+			const configured = project ? { project, root } : Object.values(all).find((b) => b && path.relative(b.root, root) === "");
+			if (!configured) return; // No project mapping: never guess "default" or reuse another agent's identity.
+			const candidate: Binding = { session: `session_pi_${key}`, project: configured.project, root: configured.root };
+			status(ctx, "agent-chat: connecting");
+			try {
+				// Stable own ID makes retries idempotent even if the registration response was lost.
+				await client(candidate, ["register", "--agent", `pi-${key.slice(-12)}`]);
+				await bind(ctx, candidate.session, candidate.project, candidate.root);
+			} catch (error) {
+				status(ctx, `agent-chat: auto-bind failed: ${(error as Error).message.slice(0, 60)}`);
+			}
+			return;
+		}
 		start(ctx);
 		declareModel(binding, ctx.model, pi.getThinkingLevel());
 	});
